@@ -1,0 +1,33 @@
+# This yml file is used for creation of EC2 ALB
+resources:
+  Resources:
+    RDSAuditLogEnablerALB:
+      Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+      Properties:
+        IpAddressType: ipv4
+        LoadBalancerAttributes:
+          - Key: idle_timeout.timeout_seconds
+            Value: 900
+        Name: RDSAuditLogEnablerALB
+        Scheme: internet-facing
+        SecurityGroups: ${self:custom.SecurityGroupIds}
+        Subnets: ${self:custom.SubnetIds}
+        Type: application
+    RDSAuditLogEnablerALBListener:
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+        DefaultActions:
+          - Type: fixed-response
+            FixedResponseConfig:
+              ContentType: application/json
+              MessageBody: "{\"status\":\"failed\", \"message\":\"invalid url\"}"
+              StatusCode: 400
+        LoadBalancerArn: !Ref RDSAuditLogEnablerALB
+        Port: 80
+        Protocol: HTTP
+  Outputs:
+    RDSAuditLogEnablerURL:
+      Description: The URL of service enablement URL
+      Value: !GetAtt "RDSAuditLogEnablerALB.DNSName"
+      Export:
+        Name: RDSAuditLogEnablerURL

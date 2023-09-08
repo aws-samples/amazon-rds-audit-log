@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "serverless": "^3.28.0"
+  },
+  "devDependencies": {
+    "serverless-pseudo-parameters": "^2.6.1",
+    "serverless-python-requirements": "^6.0.0",
+    "serverless-step-functions": "^3.13.1"
+  }
+}

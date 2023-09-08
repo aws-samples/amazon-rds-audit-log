@@ -1,0 +1,52 @@
+functions:
+  event_bridge_lambda:
+    vpc:
+      securityGroupIds: ${self:custom.SecurityGroupIds}
+      subnetIds: ${self:custom.SubnetIds}
+    role: RDSAuditLogEnablementDefaultRole
+    image:
+      name: appimage
+      command:
+        - lambda.event_bridge.app.event_bridge_lambda.handler
+      entryPoint:
+        - '/lambda-entrypoint.sh'
+    events:
+      - eventBridge:
+          eventBus: !GetAtt EventBusForTriggerLambda.Name
+          pattern:
+            detail-type:
+              - AWS API Call via CloudTrail
+            detail:
+              eventSource:
+                - rds.amazonaws.com
+              eventName:
+                - CreateDBInstance
+                - CreateDBCluster
+    environment:
+      env: ${self:custom.env}
+
+resources:
+  Resources:
+    EventBusForTriggerLambda:
+      Type: AWS::Events::EventBus
+      Properties:
+        Name: accept-rds-event
+    EventBusPolicy0:
+      Type: AWS::Events::EventBusPolicy
+      Properties:
+        StatementId: AllowAccountToPutEvents
+        EventBusName: accept-rds-event
+        Statement:
+          Sid: AllowAccountToPutEvents
+          Effect: Allow
+          Principal: '*'
+          Condition:
+            StringEquals:
+              aws:PrincipalOrgID: ${self:custom.org_id}
+          Action: events:PutEvents
+          Resource:
+            Fn::GetAtt:
+              - EventBusForTriggerLambda
+              - Arn
+      DependsOn:
+        EventBusForTriggerLambda

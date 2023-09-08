@@ -1,0 +1,93 @@
+resources:
+  Resources:
+    RDSAuditLogEnablementDefaultRole:
+      Type: AWS::IAM::Role
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Delete
+      Properties:
+        RoleName: rds_audit_log_role
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: ServiceEnablementDefaultPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                  Resource:
+                    - 'Fn::Join':
+                        - ':'
+                        - - 'arn:aws:logs'
+                          - Ref: 'AWS::Region'
+                          - Ref: 'AWS::AccountId'
+                          - 'log-group:/aws/lambda/*:*:*'
+                - Effect: Allow
+                  Action:
+                    - 'secretsmanager:GetSecretValue'
+                    - 'lambda:InvokeFunction'
+                  Resource:
+                    - '*'
+                - Effect: 'Allow'
+                  Action:
+                    - 'xray:*'
+                  Resource:
+                    - '*'
+                - Effect: 'Allow'
+                  Action:
+                    - 'sts:AssumeRole'
+                  Resource:
+                    - '*'
+                - Effect: Allow
+                  Action:
+                    - s3:ListBucket
+                    - s3:CreateBucket
+                  Resource: "*"
+                - Effect: Allow
+                  Action:
+                    - lambda:InvokeAsync
+                    - lambda:InvokeFunction
+                    - states:StartExecution
+                  Resource: "*"
+                - Effect: Allow
+                  Action:
+                    - ec2:DescribeNetworkInterfaces
+                    - ec2:CreateNetworkInterface
+                    - ec2:DeleteNetworkInterface
+                    - ec2:DescribeInstances
+                    - ec2:AttachNetworkInterface
+                    - ec2:DescribeRegions
+                    - ec2:ModifyInstanceAttribute
+                    - ssm:DescribeMaintenanceWindows
+                    - tag:GetResources
+                    - cloudformation:DescribeStacks
+                  Resource:
+                    - '*'
+                - Effect: Allow
+                  Action:
+                    - rds:DescribeDBClusters
+                    - rds:DescribeDBParameters
+                    - rds:DescribeDBParameterGroups
+                    - rds:DescribeOptionGroups
+                    - rds:DescribeDBInstances
+                    - rds:DescribeDBSnapshots
+                    - rds:ModifyOptionGroup
+                    - rds:ModifyDBInstance
+                    - rds:ModifyDBParameterGroup
+                    - rds:ModifyDBClusters
+                    - rds:ModifyDBSnapshots
+                    - rds:CreateOptionGroup
+                    - rds:CreateDBParameterGroup
+                    - rds:DescribeDBClusterParameterGroups
+                    - rds:CreateDBClusterParameterGroup
+                    - rds:ModifyDBClusterParameterGroup
+                  Resource: "*"

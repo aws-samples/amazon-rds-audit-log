@@ -1,0 +1,40 @@
+functions:
+  EnableAuditServiceFunc:
+    image:
+      name: appimage
+      command:
+        - lambda.enable_audit_service.app.enable_audit_handler.handler
+      entryPoint:
+        - '/lambda-entrypoint.sh'
+    vpc:
+      securityGroupIds: ${self:custom.SecurityGroupIds}
+      subnetIds: ${self:custom.SubnetIds}
+    role: RDSAuditLogEnablementDefaultRole
+    events:
+      - alb:
+          listenerArn: !Ref RDSAuditLogEnablerALBListener
+          priority: 2
+          conditions:
+            path: /v1/rdsauditlog
+            method:
+              - POST
+    environment:
+      oracle_lambda_func: !GetAtt EnableAuditServiceFuncOracleLambdaFunction.Arn
+      enable_sm_arn: !Ref RdsAuditLoggingValidationStateMachine
+      env: ${self:custom.env}
+      s3_bucket_log_export: ${self:custom.s3_bucket_log_export}
+  EnableAuditServiceFuncOracle:
+    image:
+      name: appimage
+      command:
+        - lambda.enable_audit_service.app.enable_audit_handler_oracle.handler
+      entryPoint:
+        - '/lambda-entrypoint.sh'
+    vpc:
+      securityGroupIds: ${self:custom.SecurityGroupIds}
+      subnetIds: ${self:custom.SubnetIds}
+    role: RDSAuditLogEnablementDefaultRole
+    environment:
+      enable_sm_arn: !Ref RdsAuditLoggingValidationStateMachine
+      env: ${self:custom.env}
+      s3_bucket_log_export: ${self:custom.s3_bucket_log_export}

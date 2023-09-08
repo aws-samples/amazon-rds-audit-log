@@ -1,0 +1,14 @@
+functions:
+  ValidateAuditLogSettingsFunc:
+    image:
+      name: appimage
+      command:
+        - lambda.validate_audit_log_settings.app.validate_audit_log_settings_handler.handler
+      entryPoint:
+        - '/lambda-entrypoint.sh'
+    vpc:
+      securityGroupIds: ${self:custom.SecurityGroupIds}
+      subnetIds: ${self:custom.SubnetIds}
+    role: RDSAuditLogEnablementDefaultRole
+    environment:
+      s3_bucket_log_export: ${self:custom.s3_bucket_log_export}

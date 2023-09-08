@@ -1,0 +1,740 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for EventBridge rule 'send-rds-event'
+Resources:
+  ExportAuditLogToS3LogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: /aws/lambda/rds-auditlog-enablement-dev-ExportAuditLogToS3
+      RetentionInDays: 7
+  EventRuleLogGroup:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: default
+      EventPattern:
+        source:
+          - aws.logs
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - logs.amazonaws.com
+          eventName:
+            - CreateLogGroup
+          requestParameters:
+            logGroupName:
+              - prefix: /aws/rds/instance/
+              - prefix: /aws/rds/cluster/
+      Name: export-log-group-s3
+      State: ENABLED
+      Targets:
+        - Id: "createfirhosetoexports3"
+          Arn: !GetAtt
+            - ExportAuditLogToS3LambdaFunction
+            - Arn
+    DependsOn:
+      - ExportAuditLogToS3LambdaFunction
+  ExportAuditLogToS3LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Runtime: python3.9
+      Handler: index.handler
+      FunctionName: rds-auditlog-enablement-dev-ExportAuditLogToS3
+      MemorySize: 1024
+      Timeout: 900
+      Role: !Join [ "", [ !Sub "arn:aws:iam::${AWS::AccountId}:role/", "rds_audit_log_role" ] ]
+      Environment:
+        Variables:
+          cloudwatch_to_firehose_role_name: rds_audit_log_cloudwatch_to_firehose_role
+          firehose_to_s3_role_name: rds_audit_log_firehose_to_s3_role
+          firehose_prefix: auditlog-firehose-
+          filter_prefix: auditlog-filter-
+      Code:
+        ZipFile: |
+          # Imports
+          import json
+          import re
+          import time
+          import logging
+          import os
+          import boto3
+          from botocore.exceptions import ClientError
+
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+
+          class FailedAuditExportToS3(Exception):
+              pass
+          class SetupCwRdsLogsToS3:
+              def __init__(self,
+                           region,
+                           s3_log_bucket_name,
+                           cloudwatch_to_firehose_role_name,
+                           firehose_to_s3_role_name,
+                           firehose_name,
+                           log_group_name,
+                           account_id,
+                           firehose_client,
+                           iam_client,
+                           logs_client,
+                           logger=None):
+                  self.logger = logger
+                  if not self.logger:
+                      self.logger = logger
+
+                  self.firehose_to_s3_exists = False
+                  self.cloudwatch_to_firehose_exists = False
+
+                  self.cloudwatch_to_firehose_role_name = cloudwatch_to_firehose_role_name
+                  self.firehose_to_s3_role_name = firehose_to_s3_role_name
+                  self.s3_bucket_arn = f'arn:aws:s3:::{s3_log_bucket_name}'
+                  self.log_group_name = log_group_name
+                  self.account_number = account_id
+                  self.region = region
+
+                  self.firehose_stream = f'arn:aws:logs:{self.region}:{self.account_number}:' \
+                                         f'log-group:/aws/kinesisfirehose/{firehose_name}:log-stream:*'
+                  self.firehose_cw_error_loggroup_name = f'/aws/kinesisfirehose/{firehose_name}'
+                  self.firehose_cw_error_logstream_name = 'DestinationDelivery'
+
+                  # Print values
+                  self.logger.info(f'cloudwatch_to_firehose_role_name = {self.cloudwatch_to_firehose_role_name}')
+                  self.logger.info(f'firehose_to_s3_role_name = {self.firehose_to_s3_role_name}')
+                  self.logger.info(f's3_log_bucket_name = {s3_log_bucket_name}')
+                  self.logger.info(f'log_group_name = {self.log_group_name}')
+
+                  # Initialize clients
+                  self.iam_client = iam_client
+                  self.firehose_client = firehose_client
+                  self.logs_client = logs_client
+
+              def wait_for_active_firehose(self, firehose_name):
+                  """Wait until the Firehose delivery stream is active
+                  :param firehose_name: Name of Firehose delivery stream
+                  :return: True if delivery stream is active. Otherwise, False.
+                  """
+                  delay = 1
+                  while True:
+                      try:
+                          result = self.firehose_client.describe_delivery_stream(DeliveryStreamName=firehose_name)
+                      except ClientError as err:
+                          self.logger.error(err)
+                          return False
+
+                      status = result['DeliveryStreamDescription']['DeliveryStreamStatus']
+
+                      if status == 'ACTIVE':
+                          self.logger.info('SUCCESS: Firehose delivery stream is now active')
+                          return True
+                      if status == 'DELETING':
+                          self.logger.error(f'Firehose delivery stream {firehose_name} is being deleted.')
+                          return False
+
+                      msg = 'Waiting for Firehose delivery stream to go active'
+                      self.logger.info('Waiting for Firehose delivery stream to go active')
+                      delay = delay * 2
+                      time.sleep(delay)
+                      if delay == 512:
+                          raise FailedAuditExportToS3(msg)
+
+              def get_firehose_arn(self, firehose_name):
+                  """Retrieve the ARN of the specified Firehose
+                  :param firehose_name: Firehose stream name
+                  :return: If the Firehose stream exists, return ARN, else None
+                  """
+                  try:
+                      self.logger.info(f'calling describe {firehose_name} ')
+                      result = self.firehose_client.describe_delivery_stream(DeliveryStreamName=firehose_name)
+                  except self.firehose_client.exceptions.ResourceNotFoundException as e:
+                      self.logger.error(f'Firehose {firehose_name} not present. Error={e}')
+                      return None
+                  except ClientError as e:
+                      self.logger.error(f'ClientError on {firehose_name}. Error={e}')
+                      return None
+                  except Exception as e:
+                      self.logger.error(e)
+                      return None
+
+                  arn = result['DeliveryStreamDescription']['DeliveryStreamARN']
+                  return arn
+
+              def firehose_exists(self, firehose_name):
+                  """Check if the specified Firehose exists
+                  :param firehose_name: Firehose stream name
+                  :return: True if Firehose exists, else False
+                  """
+                  # Try to get the description of the Firehose
+                  if self.get_firehose_arn(firehose_name) is None:
+                      return False
+                  return True
+
+              def get_iam_role_arn(self, iam_role_name):
+                  """Retrieve the ARN of the IAM role
+                  :param iam_role_name: IAM role name
+                  :return: If the IAM role exists, return ARN, else None
+                  """
+                  # Try to retrieve information about the role
+                  try:
+                      result = self.iam_client.get_role(RoleName=iam_role_name)
+                  except self.iam_client.exceptions.NoSuchEntityException as e:
+                      self.logger.error(f'IAM Role {iam_role_name} not present. Error={e}')
+                      return None
+                  except ClientError as e:
+                      self.logger.error(f'ClientError on role {iam_role_name}. Error={e}')
+                      return None
+                  except Exception as e:
+                      self.logger.error(e)
+                      return None
+                  return result['Role']['Arn']
+
+              def iam_role_exists(self, iam_role_name):
+                  """Check if the specified IAM role exists
+                  :param iam_role_name: IAM role name
+                  :return: True if IAM role exists, else False
+                  """
+                  # Get ARN of specified role to confirm if it exists
+                  if self.get_iam_role_arn(iam_role_name) is None:
+                      return False
+                  return True
+
+              def create_iam_role_for_firehose_to_s3(self, iam_role_name):
+                  firehose_assume_role = {
+                      'Version': '2012-10-17',
+                      'Statement': [
+                          {
+                              'Sid': '',
+                              'Effect': 'Allow',
+                              'Principal': {
+                                  'Service': 'firehose.amazonaws.com'
+                              },
+                              'Action': 'sts:AssumeRole'
+                          }
+                      ]
+                  }
+
+                  try:
+                      result = self.iam_client.create_role(RoleName=iam_role_name,
+                                                           Path='/itx/core/',
+                                                           AssumeRolePolicyDocument=json.dumps(firehose_assume_role))
+                      self.logger.info(f'Created Firehose-to-S3 Role={iam_role_name}')
+                  except ClientError as err:
+                      self.logger.error(f'Error creating Firehose-to-S3 Role={iam_role_name}. Error={err}')
+                      return None
+                  except Exception as err:
+                      self.logger.error(f'Error creating Firehose-to-S3 Role={iam_role_name}. Error={err}')
+                      return None
+
+                  firehose_role_arn = result['Role']['Arn']
+
+                  # Policy for S3 permissions
+                  policy_name = 'firehose_s3_access'
+                  s3_access = {
+                      "Version": "2012-10-17",
+                      "Statement": [
+                          {
+                              "Sid": "",
+                              "Effect": "Allow",
+                              "Action": [
+                                  "s3:AbortMultipartUpload",
+                                  "s3:GetBucketLocation",
+                                  "s3:GetObject",
+                                  "s3:ListBucket",
+                                  "s3:ListBucketMultipartUploads",
+                                  "s3:PutObject"
+                              ],
+                              "Resource": [
+                                  f"{self.s3_bucket_arn}/*",
+                                  f"{self.s3_bucket_arn}"
+                              ]
+                          },
+                          {
+                              "Effect": "Allow",
+                              "Action": [
+                                  "logs:PutLogEvents"
+                              ],
+                              "Resource": [
+                                  f"{self.firehose_stream}"
+                              ]
+                          }
+                      ]
+                  }
+
+                  try:
+                      self.iam_client.put_role_policy(RoleName=iam_role_name,
+                                                      PolicyName=policy_name,
+                                                      PolicyDocument=json.dumps(s3_access))
+                      self.logger.info(f'Inserted policy in Firehose-to-S3 Role={iam_role_name}')
+                  except ClientError as err:
+                      self.logger.error(f'Error inserting policy in Firehose-to-S3 Role={iam_role_name}. Error={err}')
+                      return None
+
+                  # Return the ARN of the created IAM role
+                  self.logger.info(f'SUCCESS: Created Firehose-to-S3 Role={iam_role_name} and inserted Policy={policy_name}')
+                  return firehose_role_arn
+
+              def create_firehose_to_s3_role_and_stream(self, firehose_name, log_group_name, firehose_src_type='DirectPut'):
+                  """
+                  create firehose_to_s3_role_and_stream
+                  """
+
+                  # Create Firehose-to-S3 IAM role
+                  if self.iam_role_exists(self.firehose_to_s3_role_name):
+                      self.logger.info(f'Firehose-to-S3 Role exists. Role={self.firehose_to_s3_role_name}')
+                      firehose_to_s3_role_arn = self.get_iam_role_arn(self.firehose_to_s3_role_name)
+                  else:
+                      self.logger.info(f'Creating Firehose-to-S3 Role={self.firehose_to_s3_role_name}')
+                      firehose_to_s3_role_arn = self.create_iam_role_for_firehose_to_s3(self.firehose_to_s3_role_name)
+
+                  if firehose_to_s3_role_arn is None:
+                      self.logger.error(f'Error getting Firehose-to-S3 Role ARN. Role={self.firehose_to_s3_role_name}')
+                      return None
+
+                  # For creating Firehose stream S3 config, BucketARN and RoleARN are required
+                  # Set the buffer interval=200 seconds (Default=300 seconds). Buffer size=5 MiB
+                  s3_config = {
+                      'BucketARN': self.s3_bucket_arn,
+                      'RoleARN': firehose_to_s3_role_arn,
+                      'Prefix': 'AWSLogs/' + self.account_number + '/rds/' + log_group_name + '/' +
+                                "!{timestamp:yyyy}-!{timestamp:MM}-!{timestamp:dd}-!{timestamp:HH}/",
+                      'ErrorOutputPrefix': self.account_number + '/!{firehose:error-output-type}-' + firehose_name + '/' +
+                                           "!{timestamp:yyyy}-!{timestamp:MM}-!{timestamp:dd}-!{timestamp:HH}/",
+                      'BufferingHints': {
+                          'IntervalInSeconds': 200,
+                      },
+                      'CompressionFormat': 'UNCOMPRESSED',
+                      'EncryptionConfiguration': {
+                          'NoEncryptionConfig': 'NoEncryption',
+                      },
+                      'CloudWatchLoggingOptions': {
+                          'Enabled': True,
+                          'LogGroupName': self.firehose_cw_error_loggroup_name,
+                          'LogStreamName': self.firehose_cw_error_logstream_name
+                      },
+                  }
+
+                  # Create Firehose error log group
+                  try:
+                      self.logger.info(f'Creating Firehose error log group {self.firehose_cw_error_loggroup_name}')
+                      self.logs_client.create_log_group(logGroupName=self.firehose_cw_error_loggroup_name)
+                  except ClientError as ce:
+                      if ce.response['Error']['Code'] != 'ResourceAlreadyExistsException':
+                          self.logger.error(f'Firehose Error Log Group {self.firehose_cw_error_loggroup_name} exists: {str(ce)}')
+                  except Exception as ex:
+                      self.logger.error(f'Firehose Error Log Group creation error: {str(ex)}')
+
+                  # Create Firehose error log stream
+                  try:
+                      self.logger.info(f'Creating Firehose error log stream {self.firehose_cw_error_logstream_name}')
+                      self.logs_client.create_log_stream(logGroupName=self.firehose_cw_error_loggroup_name,
+                                                         logStreamName=self.firehose_cw_error_logstream_name)
+                  except ClientError as ce:
+                      if ce.response['Error']['Code'] != 'ResourceAlreadyExistsException':
+                          self.logger.error(
+                              f'Firehose Error Log Stream {self.firehose_cw_error_logstream_name} exists: {str(ce)}')
+                  except Exception as ex:
+                      self.logger.error(f'Firehose Error Log Stream creation error: {str(ex)}')
+
+                  # Firehose receives data from direct puts. Create the delivery stream with DeliveryStreamType='DirectPut'
+                  self.logger.info('Creating Firehose delivery stream to S3.')
+                  return self.create_firehose_stream(firehose_name, firehose_src_type, s3_config)
+
+              def create_firehose_stream(self, firehose_name, firehose_src_type, s3_config):
+                  """
+                  create firehose stream
+                  """
+                  try:
+                      self.logger.info(
+                          f'Creating create_firehose_stream firehose_name-{firehose_name}, '
+                          f'firehose_src_type-{firehose_src_type},'
+                          f's3_config- {s3_config}.')
+                      result = self.firehose_client.create_delivery_stream(
+                          DeliveryStreamName=firehose_name,
+                          DeliveryStreamType=firehose_src_type,
+                          ExtendedS3DestinationConfiguration=s3_config,
+                          Tags=[{
+                              'Key': 'gxp:owner', 'Value': 'gxp'
+                          }]
+                      )
+                      if 'DeliveryStreamARN' in result:
+                          arn = result['DeliveryStreamARN']
+                          self.logger.info(f'SUCCESS: Created Firehose delivery stream to S3. ARN={arn}')
+                          return arn
+                      return None
+                  except ClientError:
+                      raise FailedAuditExportToS3("Error while creating firehose")
+
+              def create_iam_role_for_cloudwatch_to_firehose(self, iam_role_name):
+                  """
+                  create iam role
+                  """
+                  cloudwatch_assume_role = {
+                      'Version': '2012-10-17',
+                      'Statement': [
+                          {
+                              'Sid': '',
+                              'Effect': 'Allow',
+                              'Principal': {
+                                  'Service': f'logs.{self.region}.amazonaws.com'
+                              },
+                              'Action': 'sts:AssumeRole'
+                          }
+                      ]
+                  }
+
+                  try:
+                      result = self.iam_client.create_role(RoleName=iam_role_name,
+                                                           Path='/itx/core/',
+                                                           AssumeRolePolicyDocument=json.dumps(cloudwatch_assume_role))
+                      self.logger.info(f'Created CloudWatch-to-Firehose role. Role={iam_role_name}')
+
+                  except ClientError as err:
+                      self.logger.error(f'Failed to create CloudWatch-to-Firehose role {iam_role_name}. Error={err}')
+                      return None
+                  except Exception as err:
+                      self.logger.error(f'Failed to create CloudWatch-to-Firehose role {iam_role_name}. Error={err}')
+                      return None
+
+                  cloudwatch_role_arn = result['Role']['Arn']
+
+                  # Policy for S3 permissions
+                  policy_name = 'cloudwatch_to_firehose_access'
+                  firehose_access = {
+                      "Version": "2012-10-17",
+                      "Statement": [
+                          {
+                              "Sid": "",
+                              "Effect": "Allow",
+                              "Action": [
+                                  "firehose:*"
+                              ],
+                              "Resource": [
+                                  f"arn:aws:firehose:{self.region}:{self.account_number}:*"
+                              ]
+                          }
+                      ]
+                  }
+
+                  try:
+                      self.iam_client.put_role_policy(RoleName=iam_role_name,
+                                                      PolicyName=policy_name,
+                                                      PolicyDocument=json.dumps(firehose_access))
+                      self.logger.info(f'Inserted policy in CloudWatch-to-Firehose role. Role={iam_role_name}')
+
+                  except ClientError as err:
+                      self.logger.error(f'Failed to insert policy in CloudWatch-to-Firehose role {iam_role_name}. Error={err}')
+                      return None
+
+                  # Return the ARN of the created IAM role
+                  self.logger.info(
+                      f'SUCCESS: Created CloudWatch-to-Firehose role={iam_role_name} and inserted Policy={policy_name}')
+                  return cloudwatch_role_arn
+
+              def subscription_filter_exists(self, log_group, filter_name):
+                  """
+                  creating subscription filter
+                  """
+                  try:
+                      response = self.logs_client.describe_subscription_filters(logGroupName=log_group)
+                      if 'subscriptionFilters' in response and len(response['subscriptionFilters']):
+                          for filters in response['subscriptionFilters']:
+                              if filters['filterName'] == filter_name:
+                                  return True
+                  except self.logs_client.exceptions.ResourceNotFoundException as e:
+                      self.logger.error(f'Subscription filter not present in {log_group}. Error={e}')
+                  except ClientError as e:
+                      self.logger.error(f'ClientError on {log_group}. Error={e}')
+                  except Exception as e:
+                      self.logger.error(e)
+                  return False
+
+              def create_cloudwatch_to_firehose_role_and_subscription_filter(self, log_group, filter_name, firehose_arn):
+                  # Create Cloudwatch-to-Firehose IAM role
+                  if self.iam_role_exists(self.cloudwatch_to_firehose_role_name):
+                      self.logger.info(f'CloudWatch-to-Firehose Role exists. Role={self.cloudwatch_to_firehose_role_name}')
+                      cw_to_kinesis_role_arn = self.get_iam_role_arn(self.cloudwatch_to_firehose_role_name)
+                  else:
+                      self.logger.info(f'Creating CloudWatch-to-Firehose Role={self.cloudwatch_to_firehose_role_name}')
+                      cw_to_kinesis_role_arn = \
+                          self.create_iam_role_for_cloudwatch_to_firehose(self.cloudwatch_to_firehose_role_name)
+
+                  if cw_to_kinesis_role_arn is None:
+                      # Error creating IAM role
+                      self.logger.error(
+                          f'Error getting CloudWatch-to-Firehose Role ARN. Role={self.cloudwatch_to_firehose_role_name}')
+                      return False
+
+                  # Create subscription filter
+                  self.logger.info(f'Creating CloudWatch Subscription filter. Name={filter_name}')
+                  self.create_subscription_filter(log_group, filter_name, firehose_arn, cw_to_kinesis_role_arn,
+                                                  distribution='ByLogStream')
+                  return True
+
+              def create_subscription_filter(self, log_group_name, filter_name, firehose_arn, cw_to_kinesis_role_arn,
+                                             distribution='ByLogStream'):
+                  """
+                  create subscription filter
+                  """
+                  filter_pattern = ''
+                  delay = 1
+                  while True:
+                      # put_subscription_filter returns None. If no exception return True
+                      try:
+                          self.logs_client.put_subscription_filter(
+                              logGroupName=log_group_name,
+                              filterName=filter_name,
+                              filterPattern=filter_pattern,
+                              destinationArn=firehose_arn,
+                              roleArn=cw_to_kinesis_role_arn,
+                              distribution=distribution
+                          )
+                          self.logger.info(f'SUCCESS: Created subscription filter. Name={filter_name}')
+                          break
+                      except ClientError as err:
+                          logger.info(f"Continue - Error creating Subscription filter: {err}")
+                          error = err
+                      delay = delay * 2
+                      time.sleep(delay)
+                      if delay == 512:
+                          raise FailedAuditExportToS3(f'Error creating Subscription filter: {error}')
+          def handler(event, context):
+              region = event.get('region')
+              error_code = event.get('errorCode')
+              account_id = event.get('account')
+              if error_code:
+                  return {"message": "Cloudwatch log creation failed"}
+              cloudwatch_to_firehose_role_name = os.environ.get('cloudwatch_to_firehose_role_name')
+              firehose_to_s3_role_name = os.environ.get('firehose_to_s3_role_name')
+              firehose_prefix = os.environ.get('firehose_prefix')
+              filter_prefix = os.environ.get('filter_prefix')
+              s3_log_bucket_name = "audit-log-export-" + region + "-" + account_id
+              s3_client = boto3.client("s3", region_name=region)
+              try:
+                  logger.info(f"checking for bucket exist- {s3_log_bucket_name}")
+                  response = s3_client.head_bucket(Bucket=s3_log_bucket_name)
+              except ClientError:
+                  logger.info("bucket does not exist, creating...")
+                  response = s3_client.create_bucket(Bucket=s3_log_bucket_name)
+                  logger.info(f"bucket does not exist, created {s3_log_bucket_name}")
+              logger.info(f'log bucket name -- {s3_log_bucket_name}')
+              logger.info(f's3_log_bucket_name {s3_log_bucket_name}')
+              log_group = event['detail'].get('requestParameters', {}).get('logGroupName', None)
+              tmp = re.search(r"\/aws\/rds\/(cluster|instance)\/([\w-]+)\/(audit|general|slowquery|postgresql)",
+                              log_group)
+              log_group_name = tmp.group(2)
+              if log_group_name is None:
+                  raise FailedAuditExportToS3(f'Invalid log_group_name: {log_group_name}')
+
+              # Set custom names for Firehose and CW subscription filter
+              firehose_name = firehose_prefix + log_group_name
+              filter_name = filter_prefix + log_group_name
+              firehose_client = boto3.client("firehose", region_name=region)
+              iam_client = boto3.client("iam", region_name=region)
+              logs_client = boto3.client("logs", region_name=region)
+
+              obj = SetupCwRdsLogsToS3(region,
+                                       s3_log_bucket_name,
+                                       cloudwatch_to_firehose_role_name,
+                                       firehose_to_s3_role_name,
+                                       firehose_name,
+                                       log_group_name,
+                                       account_id,
+                                       firehose_client,
+                                       iam_client,
+                                       logs_client,
+                                       logger)
+
+              logger.info('obj created')
+              if not obj.firehose_exists(firehose_name):
+                  # Create Firehose delivery stream to S3
+                  logger.info('Firehose not existed')
+                  firehose_arn = obj.create_firehose_to_s3_role_and_stream(firehose_name, log_group_name)
+              else:
+                  logger.info('Firehose existed')
+                  firehose_arn = obj.get_firehose_arn(firehose_name)
+                  logger.info('Firehose delivery stream to S3 exists')
+
+              # Check if Firehose ARN is valid
+              logger.info('Firehose creation done')
+              if firehose_arn is None:
+                  raise FailedAuditExportToS3(f'ARN not returned for Firehose=\'{firehose_name}\'')
+
+              # Wait for Firehose stream to become active
+              firehose_active_state = obj.wait_for_active_firehose(firehose_name)
+              logger.info('Wait for Firehose stream to become active')
+              if not firehose_active_state:
+                  raise FailedAuditExportToS3(f'Firehose=\'{firehose_name}\' is not in \'Active\' state')
+
+              logger.info('Log Group subscription filter doesn"t exist, create it')
+              subscription_filter_exists = obj.subscription_filter_exists(log_group, filter_name)
+              if not subscription_filter_exists:
+                  # Create subscription filter to Firehose and associated role
+                  logger.info('Log Group subscription filter doesn"t exist, creating')
+                  filter_create_status = \
+                      obj.create_cloudwatch_to_firehose_role_and_subscription_filter(log_group, filter_name, firehose_arn)
+                  if not filter_create_status:
+                      raise FailedAuditExportToS3(f'Error creating CloudWatch subscription filter=\'{filter_name}\'')
+              else:
+                  logger.info(f'CloudWatch Log Group subscription filter exists: {filter_name}')
+
+              return None
+
+      TracingConfig:
+        Mode: Active
+  RDSAuditLogEnablementAssumeRole:
+    Type: 'AWS::IAM::Role'
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Delete
+    Properties:
+      RoleName: rds_audit_log_role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+              AWS:
+                - !Sub
+                  - 'arn:aws:iam::${GovernanceAccount}:root'
+                  - GovernanceAccount: !Ref GovernanceAccountId
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: ServiceEnablementDefaultPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                  - "logs:PutSubscriptionFilter"
+                  - "logs:DescribeSubscriptionFilters"
+                Resource:
+                  - !Join
+                    - ':'
+                    - - 'arn:aws:logs'
+                      - !Ref 'AWS::Region'
+                      - !Ref 'AWS::AccountId'
+                      - 'log-group:/aws/*/*:*:*'
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                  - 'lambda:InvokeFunction'
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - 'xray:*'
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - firehose:DescribeDeliveryStream
+                  - firehose:CreateDeliveryStream
+                  - s3:ListBucket
+                  - s3:CreateBucket
+                  - iam:GetRole
+                  - iam:CreateRole
+                  - iam:PutRolePolicy
+                  - iam:PassRole
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeAsync'
+                  - 'lambda:InvokeFunction'
+                  - 'states:StartExecution'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'ec2:DescribeNetworkInterfaces'
+                  - 'ec2:CreateNetworkInterface'
+                  - 'ec2:DeleteNetworkInterface'
+                  - 'ec2:DescribeInstances'
+                  - 'ec2:AttachNetworkInterface'
+                  - 'ec2:DescribeRegions'
+                  - 'ec2:ModifyInstanceAttribute'
+                  - 'ssm:DescribeMaintenanceWindows'
+                  - 'tag:GetResources'
+                  - 'cloudformation:DescribeStacks'
+                Resource:
+                  - '*'
+              - Effect: Allow
+                Action:
+                  - 'rds:DescribeDBClusters'
+                  - 'rds:DescribeDBParameters'
+                  - 'rds:DescribeDBParameterGroups'
+                  - 'rds:DescribeOptionGroups'
+                  - 'rds:DescribeDBInstances'
+                  - 'rds:DescribeDBSnapshots'
+                  - 'rds:ModifyOptionGroup'
+                  - 'rds:ModifyDBInstance'
+                  - 'rds:ModifyDBParameterGroup'
+                  - 'rds:ModifyDBClusters'
+                  - 'rds:ModifyDBSnapshots'
+                  - 'rds:CreateOptionGroup'
+                  - 'rds:CreateDBParameterGroup'
+                  - 'rds:DescribeDBClusterParameterGroups'
+                  - 'rds:CreateDBClusterParameterGroup'
+                  - 'rds:ModifyDBClusterParameterGroup'
+                Resource: '*'
+  AmazonEventBridgeInvokeEventBus:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 'events.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: AmazonEventBridgeInvokeEventBus
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'events:PutEvents'
+                Resource:
+                  - !Sub
+                    - 'arn:aws:events:us-east-1:${GovernanceAccount}:event-bus/accept-rds-event'
+                    - GovernanceAccount: !Ref GovernanceAccountId
+  EventRuleRDSCreation:
+    Type: AWS::Events::Rule
+    Properties:
+      EventBusName: default
+      EventPattern:
+        detail-type:
+          - AWS API Call via CloudTrail
+        detail:
+          eventSource:
+            - rds.amazonaws.com
+          eventName:
+            - CreateDBInstance
+            - CreateDBCluster
+      Name: send-rds-event
+      State: ENABLED
+      Targets:
+        - Id: "CrossAccountEventBus"
+          Arn: !Sub
+            - 'arn:aws:events:us-east-1:${GovernanceAccount}:event-bus/accept-rds-event'
+            - GovernanceAccount: !Ref GovernanceAccountId
+          RoleArn: !GetAtt
+            - AmazonEventBridgeInvokeEventBus
+            - Arn
+    DependsOn:
+      - AmazonEventBridgeInvokeEventBus
+
+Parameters:
+  GovernanceAccountId:
+    Type: String
+    Description: Governance account ID
+
+Outputs:
+  RDSAuditLogEnablementAssumeRole:
+    Description: The Role ARN
+    Value: !GetAtt "RDSAuditLogEnablementAssumeRole.Arn"
+    Export:
+      Name: RDSAuditLogEnablementAssumeRole
+
