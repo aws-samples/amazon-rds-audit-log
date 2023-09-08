@@ -33,6 +33,17 @@ Resources:
             - Arn
     DependsOn:
       - ExportAuditLogToS3LambdaFunction
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref ExportAuditLogToS3LambdaFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt
+        - EventRuleLogGroup
+        - Arn
+    DependsOn:
+      - EventRuleLogGroup
   ExportAuditLogToS3LambdaFunction:
     Type: AWS::Lambda::Function
     Properties:
