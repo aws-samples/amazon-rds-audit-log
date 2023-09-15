@@ -65,7 +65,7 @@ def entry_point_with_auth(event):
     error_message = 'Failure in Audit Log enablement. Details'
     try:
         if auth(event):
-            logger.error("Authorization success")
+            logger.info("Authorization success")
     except Exception as err:
         logger.error(f'{error_message}: {err}')
         logger.error('Authorization failed: User not-authorized')
