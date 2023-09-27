@@ -60,3 +60,8 @@ response = conn.create_db_instance(
 ## How it works
 
 <img width="924" alt="image" src="https://github.com/aws-samples/amazon-rds-audit-log/assets/31387408/a7ec063e-c56a-4f97-ba7c-df5b11493b1f">
+
+## Contributors
+* Suresh Poopandi
+* Abhay Kumar
+* Mansoor Khan
