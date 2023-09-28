@@ -37,27 +37,42 @@ resources:
                     - 'lambda:InvokeFunction'
                   Resource:
                     - '*'
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalOrgID: ${self:custom.org_id}
                 - Effect: 'Allow'
                   Action:
                     - 'xray:*'
                   Resource:
                     - '*'
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalOrgID: ${self:custom.org_id}
                 - Effect: 'Allow'
                   Action:
                     - 'sts:AssumeRole'
                   Resource:
                     - '*'
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalOrgID: ${self:custom.org_id}
                 - Effect: Allow
                   Action:
                     - s3:ListBucket
                     - s3:CreateBucket
                   Resource: "*"
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalOrgID: ${self:custom.org_id}
                 - Effect: Allow
                   Action:
                     - lambda:InvokeAsync
                     - lambda:InvokeFunction
                     - states:StartExecution
                   Resource: "*"
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalOrgID: ${self:custom.org_id}
                 - Effect: Allow
                   Action:
                     - ec2:DescribeNetworkInterfaces
@@ -72,6 +87,9 @@ resources:
                     - cloudformation:DescribeStacks
                   Resource:
                     - '*'
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalOrgID: ${self:custom.org_id}
                 - Effect: Allow
                   Action:
                     - rds:DescribeDBClusters
@@ -91,3 +109,6 @@ resources:
                     - rds:CreateDBClusterParameterGroup
                     - rds:ModifyDBClusterParameterGroup
                   Resource: "*"
+                  Condition:
+                    StringEquals:
+                      aws:PrincipalOrgID: ${self:custom.org_id}
