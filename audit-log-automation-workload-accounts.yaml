@@ -632,11 +632,17 @@ Resources:
                 Action:
                   - 'secretsmanager:GetSecretValue'
                   - 'lambda:InvokeFunction'
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource:
                   - '*'
               - Effect: Allow
                 Action:
                   - 'xray:*'
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource:
                   - '*'
               - Effect: Allow
@@ -649,12 +655,18 @@ Resources:
                   - iam:CreateRole
                   - iam:PutRolePolicy
                   - iam:PassRole
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource: "*"
               - Effect: Allow
                 Action:
                   - 'lambda:InvokeAsync'
                   - 'lambda:InvokeFunction'
                   - 'states:StartExecution'
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource: '*'
               - Effect: Allow
                 Action:
@@ -668,6 +680,9 @@ Resources:
                   - 'ssm:DescribeMaintenanceWindows'
                   - 'tag:GetResources'
                   - 'cloudformation:DescribeStacks'
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource:
                   - '*'
               - Effect: Allow
@@ -688,7 +703,11 @@ Resources:
                   - 'rds:DescribeDBClusterParameterGroups'
                   - 'rds:CreateDBClusterParameterGroup'
                   - 'rds:ModifyDBClusterParameterGroup'
+                Condition:
+                  StringEquals:
+                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource: '*'
+
   AmazonEventBridgeInvokeEventBus:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -741,6 +760,9 @@ Parameters:
   GovernanceAccountId:
     Type: String
     Description: Governance account ID
+  OrganizationId:
+    Type: String
+    Description: Organization ID
 
 Outputs:
   RDSAuditLogEnablementAssumeRole:
