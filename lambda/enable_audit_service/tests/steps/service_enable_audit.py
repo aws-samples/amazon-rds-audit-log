@@ -356,7 +356,7 @@ def step_impl(context):
             # If cluster mode=provisioned then change from cluster to instance
             # If cluster mode=serverless then leave as cluster, change db_id to cluster_id
             mock_db.return_value = True
-            token_bearer = ""
+            token_bearer = ""  # nosec
             if context.instance_or_cluster == 'cluster':
                 if context.engine_mode:
                     if context.engine_mode == 'provisioned':
@@ -414,7 +414,7 @@ def step_impl(context):
         context.lambda_status_message = response_body['message']
         context.sfn_execution_arn = response_body['sfn_execution_arn']
     else:
-        assert False
+        assert_that(False)
 
 
 @then(u'API response contains a status code of {expected_status_code}')
@@ -454,7 +454,7 @@ def step_impl(context, instance_or_cluster, identifier, engine, version, port, u
             else:
                 setup_test_rds_cluster(context)
         else:
-            assert False
+            assert_that(False)
 
 
 @step("response contains the Step Function execution ARN which does the validation")
@@ -463,7 +463,7 @@ def step_impl(context):
         logger.info(f'sfn_execution_arn={context.sfn_execution_arn}')
     else:
         logger.error('sfn_execution_arn not found in context')
-    assert True if (os.environ.get("enable_sm_arn") and 'sfn_execution_arn' in context) is not None else False
+    assert_that(True if (os.environ.get("enable_sm_arn") and 'sfn_execution_arn' in context) is not None else False)
 
 
 @step("response contains the enablement success message")
@@ -485,14 +485,14 @@ def step_impl(context):
             context.exec_response = context.sfn_client.describe_execution(executionArn=sfn_execution_arn)
         logger.info({'final exec_response': context.exec_response})
     else:
-        assert False
+        assert_that(False)
 
 
 @step("the Step Function executes successfully to validate the audit setup")
 def step_impl(context):
     sfn_execution_status = json.loads(context.exec_response.get('output', 'failed'))
     logger.info({'final sfn_execution_status': sfn_execution_status})
-    assert True if sfn_execution_status['status'] == 'success' else False
+    assert_that(True if sfn_execution_status['status'] == 'success' else False)
 
 
 @then("API returns message on failed audit log enablement")
@@ -503,7 +503,7 @@ def step_impl(context):
 
 @step(u'we invoke validation step function')
 def step_impl(context):
-    assert True if (os.environ.get("enable_sm_arn") and 'sfn_execution_arn' in context) is not None else False
+    assert_that(True if (os.environ.get("enable_sm_arn") and 'sfn_execution_arn' in context) is not None else False)
 
 
 # Failed validation - Step Fn run
