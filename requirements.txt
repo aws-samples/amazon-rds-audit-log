@@ -1,0 +1,25 @@
+# core libs
+requests
+Jinja2
+retry
+aws-psycopg2
+pyodbc
+cx_Oracle
+werkzeug
+Flask
+click==8.1.3
+attrs
+boto3
+cryptography
+botocore
+PyJWT==2.5.0
+retry
+
+
+# Test
+behave
+pytest
+nose
+PyHamcrest
+coverage
+pylint

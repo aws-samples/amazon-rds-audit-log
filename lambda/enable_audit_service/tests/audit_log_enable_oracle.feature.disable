@@ -1,0 +1,23 @@
+@rds-audit-log-oracle
+@integration_test
+
+Feature: Audit log enablement and validation of Oracle databases using the RDS Audit Log API
+
+#    Scenario Outline: Positive Scenario - Successful audit log Enablement of RDS Oracle instance
+#        Given POST API /v1/rdsauditlog exists
+#            And an authorized user makes the API call
+#            And an account exists
+#            And instance exists with details <database_identifier>, <engine>, <version>, <port>, <user>, log_destination
+#        When we invoke POST API /v1/rdsauditlog
+#            Then API response contains a status code of 200
+#            And response contains the enablement success message
+#            And response contains the Step Function execution ARN which does the validation
+#            And the Step Function instance is running
+#            And the Step Function executes successfully to validate the audit setup
+#            And <log_destination> contains details about who performed action and at what time
+#        Examples:
+#            | database_identifier   | engine        |  port  |  user       |  version  |  log_destination |
+#            | oracle19              | oracle        |  1521  |  admin      |  19.0.0.0 |      Cloudwatch  |
+##            | oracle12-2            | oracle        |  1521  |  admin      |  12.2.0.1 |      Cloudwatch  |
+
+

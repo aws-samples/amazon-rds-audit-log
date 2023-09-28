@@ -1,0 +1,79 @@
+app: rds-auditlog-enablement-app
+service: rds-auditlog-enablement
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: us-east-1
+  timeout: 900
+  logs:
+    restApi:
+      roleManagedExternally: true
+  tracing:
+    apiGateway: true
+    lambda: true
+  stage: ${self:custom.stage}
+  eventBridge:
+    useCloudFormation: true
+  ecr:
+    # In this section you can define images that will be built locally and uploaded to ECR
+    images:
+      appimage:
+        path: ./
+package:
+  patterns:
+    - '!drivers/**'
+    - '!node_modules/**'
+    - "!**/tests/**"
+    - '!venv/**'
+    - '!include_packages/**'
+    - '!.idea/**'
+    - '!Cryptodome/**'
+    - '!cryptography/**'
+    - '!behave/**'
+    - '!botocore/**'
+
+custom:
+  pythonRequirements:
+    slim: true
+    slimPatterns:
+      - "**/*.egg-info*"
+    noDeploy:
+      - behave
+      - nose
+      - PyHamcrest
+      - coverage
+      - pylint
+      - botocore
+      - boto3
+  stage: dev
+  func_prefix: ${self:service}-${self:custom.stage}
+  region: ${opt:region, self:provider.region}
+  governance_account: !Ref AWS::AccountId
+  env: ${file(deployment_config.yml):${self:custom.stage}.env}
+  VpcId: ${file(deployment_config.yml):${self:custom.stage}.vpcconf.VpcId}
+  SubnetIds: ${file(deployment_config.yml):${self:custom.stage}.vpcconf.SubnetIds}
+  SecurityGroupIds: ${file(deployment_config.yml):${self:custom.stage}.vpcconf.SecurityGroupIds}
+  s3_bucket_log_export: ${file(deployment_config.yml):${self:custom.stage}.mssql_s3_bucket_log_export}
+  org_id: ${file(deployment_config.yml):${self:custom.stage}.org_id}
+
+
+functions:
+  - ${file(lambda/enable_audit_service/serverless.yml):functions}
+  - ${file(lambda/validate_audit_log_settings/serverless.yml):functions}
+  - ${file(lambda/event_bridge/serverless.yml):functions}
+
+stepFunctions:
+  stateMachines:
+    ${file(stepfunctions/sf_audit_log_enablement.yml):stepFunctions.stateMachines}
+
+resources:
+  - ${file(stepfunctions/alert_topic.yml):resources}
+  - ${file(serverless-iam-roles.yml):resources}
+  - ${file(alb/alb.yml):resources}
+  - ${file(lambda/event_bridge/serverless.yml):resources}
+
+
+plugins:
+  - serverless-pseudo-parameters
+  - serverless-step-functions
