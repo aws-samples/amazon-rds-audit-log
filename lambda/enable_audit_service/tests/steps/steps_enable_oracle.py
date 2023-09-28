@@ -69,7 +69,7 @@ def step_impl(context):
             url = f'http://{context.api_host}/v1/rdsauditlog'
             headers = (event_with_auth["headers"] if 'headers' in event_with_auth else {})
             body = event_with_auth["body"]
-            response = requests.post(url, data=body, headers=headers)
+            response = requests.post(url, data=body, headers=headers, timeout=900)
 
     # Good Auth Token
     else:
@@ -95,7 +95,7 @@ def step_impl(context):
                 url = f'http://{context.api_host}/v1/rdsauditlog'
                 headers = (event_with_auth["headers"] if 'headers' in event_with_auth else {})
                 body = event_with_auth["body"]
-                response = requests.post(url, data=body, headers=headers)
+                response = requests.post(url, data=body, headers=headers, timeout=900)
 
     if context.bdd_local:
         context.lambda_status_code = str(handler_output['statusCode'])
