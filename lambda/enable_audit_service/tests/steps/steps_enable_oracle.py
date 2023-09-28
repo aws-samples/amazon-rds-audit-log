@@ -112,7 +112,7 @@ def step_impl(context):
         context.lambda_status_message = response_body['message']
         context.sfn_execution_arn = response_body['sfn_execution_arn']
     else:
-        assert False
+        assert_that(False)
     pass
 
 

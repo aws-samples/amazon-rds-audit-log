@@ -36,18 +36,13 @@ resources:
                     - 'secretsmanager:GetSecretValue'
                     - 'lambda:InvokeFunction'
                   Resource:
-                    - '*'
-                  Condition:
-                    StringEquals:
-                      aws:PrincipalOrgID: ${self:custom.org_id}
+                    - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+                    - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*"
                 - Effect: 'Allow'
                   Action:
                     - 'xray:*'
                   Resource:
                     - '*'
-                  Condition:
-                    StringEquals:
-                      aws:PrincipalOrgID: ${self:custom.org_id}
                 - Effect: 'Allow'
                   Action:
                     - 'sts:AssumeRole'
@@ -60,16 +55,16 @@ resources:
                   Action:
                     - s3:ListBucket
                     - s3:CreateBucket
-                  Resource: "*"
-                  Condition:
-                    StringEquals:
-                      aws:PrincipalOrgID: ${self:custom.org_id}
+                  Resource:
+                    - !Sub "arn:aws:s3:::*"
                 - Effect: Allow
                   Action:
                     - lambda:InvokeAsync
                     - lambda:InvokeFunction
                     - states:StartExecution
-                  Resource: "*"
+                  Resource:
+                    - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+                    - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*"
                   Condition:
                     StringEquals:
                       aws:PrincipalOrgID: ${self:custom.org_id}
@@ -86,10 +81,8 @@ resources:
                     - tag:GetResources
                     - cloudformation:DescribeStacks
                   Resource:
-                    - '*'
-                  Condition:
-                    StringEquals:
-                      aws:PrincipalOrgID: ${self:custom.org_id}
+                    - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:*"
+                    - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
                 - Effect: Allow
                   Action:
                     - rds:DescribeDBClusters
@@ -108,7 +101,4 @@ resources:
                     - rds:DescribeDBClusterParameterGroups
                     - rds:CreateDBClusterParameterGroup
                     - rds:ModifyDBClusterParameterGroup
-                  Resource: "*"
-                  Condition:
-                    StringEquals:
-                      aws:PrincipalOrgID: ${self:custom.org_id}
+                  Resource: !Sub 'arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:*'
