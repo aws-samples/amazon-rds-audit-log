@@ -97,6 +97,6 @@ def handler(event, context):
     headers = (event_with_auth["headers"] if 'headers' in event_with_auth else {})
     body = event_with_auth["body"]
     logger.info(f"body-- {body}, url-- {url}")
-    response = requests.post(url, data=body, headers=headers)
+    response = requests.post(url, data=body, headers=headers, timeout=900)
     logger.info(f"response is - {response}")
 
