@@ -632,19 +632,9 @@ Resources:
                 Action:
                   - 'secretsmanager:GetSecretValue'
                   - 'lambda:InvokeFunction'
-                Condition:
-                  StringEquals:
-                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource:
-                  - '*'
-              - Effect: Allow
-                Action:
-                  - 'xray:*'
-                Condition:
-                  StringEquals:
-                    aws:PrincipalOrgID: !Ref OrganizationId
-                Resource:
-                  - '*'
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+                  - !Sub "arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*"
               - Effect: Allow
                 Action:
                   - firehose:DescribeDeliveryStream
@@ -655,19 +645,18 @@ Resources:
                   - iam:CreateRole
                   - iam:PutRolePolicy
                   - iam:PassRole
-                Condition:
-                  StringEquals:
-                    aws:PrincipalOrgID: !Ref OrganizationId
-                Resource: "*"
+                Resource:
+                  - !Sub "arn:aws:iam::${AWS::AccountId}:role/*"
+                  - !Sub "arn:aws:s3:::*"
+                  - !Sub "arn:aws:firehose:${AWS::Region}:${AWS::AccountId}:deliverystream/*"
               - Effect: Allow
                 Action:
                   - 'lambda:InvokeAsync'
                   - 'lambda:InvokeFunction'
                   - 'states:StartExecution'
-                Condition:
-                  StringEquals:
-                    aws:PrincipalOrgID: !Ref OrganizationId
-                Resource: '*'
+                Resource:
+                  - !Sub "arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:*"
+                  - !Sub "arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:*"
               - Effect: Allow
                 Action:
                   - 'ec2:DescribeNetworkInterfaces'
@@ -680,11 +669,9 @@ Resources:
                   - 'ssm:DescribeMaintenanceWindows'
                   - 'tag:GetResources'
                   - 'cloudformation:DescribeStacks'
-                Condition:
-                  StringEquals:
-                    aws:PrincipalOrgID: !Ref OrganizationId
                 Resource:
-                  - '*'
+                  - !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:*"
+                  - !Sub "arn:aws:cloudformation:${AWS::Region}:${AWS::AccountId}:stack/*"
               - Effect: Allow
                 Action:
                   - 'rds:DescribeDBClusters'
@@ -703,10 +690,8 @@ Resources:
                   - 'rds:DescribeDBClusterParameterGroups'
                   - 'rds:CreateDBClusterParameterGroup'
                   - 'rds:ModifyDBClusterParameterGroup'
-                Condition:
-                  StringEquals:
-                    aws:PrincipalOrgID: !Ref OrganizationId
-                Resource: '*'
+                Resource:
+                  - !Sub "arn:aws:rds:${AWS::Region}:${AWS::AccountId}:db:*"
 
   AmazonEventBridgeInvokeEventBus:
     Type: 'AWS::IAM::Role'
@@ -760,9 +745,6 @@ Parameters:
   GovernanceAccountId:
     Type: String
     Description: Governance account ID
-  OrganizationId:
-    Type: String
-    Description: Organization ID
 
 Outputs:
   RDSAuditLogEnablementAssumeRole:
