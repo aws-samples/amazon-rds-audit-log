@@ -423,7 +423,7 @@ def step_impl(context, database_type):
         setup_test_rds_instance(context)
 
     else:
-        assert False
+        assert_that(False)
 
 
 @when("RDS Audit Log API is invoked")
@@ -509,7 +509,7 @@ def step_impl(context, is_or_is_not):
                 DBClusterParameterGroupName='default.aurora-postgresql12',
             )
         else:
-            assert False
+            assert_that(False)
 
 
 @step("the instance parameter group is not audit log enabled")
@@ -532,7 +532,7 @@ def step_impl(context):
         context.lambda_status_message = context.response_body['message']
         context.sfn_execution_arn = context.response_body['sfn_execution_arn']
     else:
-        assert False
+        assert_that(False)
 
 
 @step("Step Function is running and invokes validation Lambda")
@@ -547,12 +547,12 @@ def step_impl(context):
             context.exec_response = context.sfn_client.describe_execution(executionArn=sfn_execution_arn)
         logger.info({'final exec_response': context.exec_response})
     else:
-        assert False
+        assert_that(False)
 
 
 @step("Step Function concludes with status {response_status} and {response_message} message")
 def step_impl(context, response_status, response_message):
     sfn_execution_status = json.loads(context.exec_response.get('output', 'failed'))
     logger.info({'final sfn_execution_status': sfn_execution_status})
-    assert True if (sfn_execution_status['status'] == response_status and
-                    sfn_execution_status['message'] == response_message) else False
+    assert_that(True if (sfn_execution_status['status'] == response_status and
+                    sfn_execution_status['message'] == response_message) else False)
