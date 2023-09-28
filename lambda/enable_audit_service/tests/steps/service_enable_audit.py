@@ -348,7 +348,7 @@ def step_impl(context):
             url = f'http://{context.api_host}/dev/v1/rds_audit_log'
             headers = (event_with_auth["headers"] if 'headers' in event_with_auth else {})
             body = event_with_auth["body"]
-            response = requests.post(url, data=body, headers=headers)
+            response = requests.post(url, data=body, headers=headers, timeout=900)
 
     # Good Auth Token
     else:
@@ -356,7 +356,7 @@ def step_impl(context):
             # If cluster mode=provisioned then change from cluster to instance
             # If cluster mode=serverless then leave as cluster, change db_id to cluster_id
             mock_db.return_value = True
-            token_bearer = "Bearer "
+            token_bearer = ""
             if context.instance_or_cluster == 'cluster':
                 if context.engine_mode:
                     if context.engine_mode == 'provisioned':
@@ -397,7 +397,7 @@ def step_impl(context):
                 url = f'http://{context.api_host}/v1/rdsauditlog'
                 headers = (event_with_auth["headers"] if 'headers' in event_with_auth else {})
                 body = event_with_auth["body"]
-                response = requests.post(url, data=body, headers=headers)
+                response = requests.post(url, data=body, headers=headers, timeout=900)
 
     if context.bdd_local:
         context.lambda_status_code = str(handler_output['statusCode'])
