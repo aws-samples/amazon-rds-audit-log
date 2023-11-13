@@ -1,0 +1,14 @@
+rds_audit_log_secret_name: 'rds-audit-log'
+dev:
+  deployment_bucket: 'serverless-lambda-package-us-east-1'
+  env: 'dev'
+  mssql_s3_bucket_log_export: "bucket_name_for_MSSQL"
+  org_id: "xxxx"
+
+  vpcconf:
+    SecurityGroupIds:
+      - sg-xxxx
+    VpcId: vpc-xxx
+    SubnetIds:
+      - subnet-123
+      - subnet-123
