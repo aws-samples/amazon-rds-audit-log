@@ -59,7 +59,19 @@ response = conn.create_db_instance(
 ```
 ## How it works
 
-<img width="924" alt="image" src="https://github.com/aws-samples/amazon-rds-audit-log/assets/31387408/a7ec063e-c56a-4f97-ba7c-df5b11493b1f">
+<img width="924" alt="image" src="https://github.com/aws-samples/amazon-rds-audit-log/images/rds-audit-log.png">
+
+The workflow steps are as follows:
+
+1. An Amazon EventBridge rule, in the workload account, triggers the custom Audit Log API, developed as part of this solution, whenever an RDS instance is created.
+2. The API starts a Step Functions workflow that enables the database audit log and waits for successful enablement.
+3. The Enable Audit Log Lambda function describes the provisioned database instance and read the secret managed by RDS in AWS Secrets Manager for the master user password and connect with the database instance. The Enable Audit Lambda functions also reads the parameter groups and option groups associated with the DB instance and updates the parameter for enabling the audit log.
+4. Database engines log user activities into an Amazon CloudWatch log as a database audit log.
+5. When the database engine writes the first entry into the CloudWatch log stream, that results in the creation of a new log stream. This CloudWatch log stream creation event triggers a Lambda function.
+6. The function creates a new Firehose delivery stream to stream logs from CloudWatch to Amazon S3.
+7. Amazon Kinesis Data Firehose reads the audit log from the CloudWatch log stream and writes the data to Amazon Simple Storage Service (Amazon S3).
+8. Amazon RDS for SQL Server can upload the audit logs to Amazon Simple Storage Service (Amazon S3) by using built-in SQL Server audit mechanisms.
+9. By default, CloudWatch logs are kept indefinitely and never expire. You can adjust the retention policy for the log group by choosing a retention period between 10 years and one day. In order to reduce cost, this solution configures the CloudWatch logs retention period to 1 day. For optimizing the cost for logs stored on S3, you can configure Amazon S3 Lifecycle policies or leverage the S3 Intelligent-Tiering storage class.
 
 ## Contributors
 * Suresh Poopandi
