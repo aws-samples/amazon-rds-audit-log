@@ -1,0 +1,7 @@
+resources:
+  Resources:
+    RDSAuditLogEnablementTopic:
+      Type: AWS::SNS::Topic
+      Properties:
+        DisplayName: RDS Audit Log Enablement Topic
+        TopicName: RDSAuditLogEnablementTopic

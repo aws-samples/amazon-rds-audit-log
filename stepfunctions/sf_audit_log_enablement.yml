@@ -1,0 +1,73 @@
+stepFunctions:
+  stateMachines:
+    RdsAuditLoggingValidation:
+      name: RdsAuditLoggingValidationStateMachine
+      definition:
+        Comment: "Validates RDS Audit Logging setup on a secondary account"
+        StartAt: "Wait X Seconds"
+        States:
+          "Wait X Seconds":
+            Type: Wait
+            SecondsPath: "$.wait_till_seconds"
+            Next: "Validate Audit Enablement"
+          "Validate Audit Enablement":
+            Type: Task
+            Resource: "arn:aws:states:::lambda:invoke"
+            ResultPath: "$.ValidateAuditEnablementStatus"
+            Parameters:
+              FunctionName: !GetAtt 'ValidateAuditLogSettingsFunc.Arn'
+              Payload:
+                "db_type.$": "$.db_type"                  
+                "db_identifier.$": "$.db_identifier"
+                "db_region.$": "$.db_region"
+                "db_account_id.$": "$.db_account_id"
+                "logger_uuid.$": "$.logger_uuid"
+            Catch:
+              - ErrorEquals:
+                  - States.ALL
+                ResultPath: "$.error-info"
+                Next: EndState
+            Next: "Check Error 1"
+          "Check Error 1":
+            Type: Choice
+            Choices:
+              - Not:
+                  Variable: "$.ValidateAuditEnablementStatus.Payload.status"
+                  StringEquals: success
+                Next: Alert
+            Default: "Set Success Response"
+          Alert:
+            Comment: "Implement Alert"
+            Type: Task
+            Resource: "arn:aws:states:::sns:publish"
+            Parameters:
+              TopicArn: !Ref RDSAuditLogEnablementTopic
+              "Message": "Error in validation of audit parameters"
+              MessageAttributes:
+                db_identifier:
+                  DataType: String
+                  'StringValue.$': "$.db_identifier"
+                db_type:
+                  DataType: String
+                  'StringValue.$': "$.db_type"                  
+            Next: "Unexpected Error State"
+          "Set Success Response":
+            Type: Pass
+            Parameters:
+              'status': 'success'              
+              'message': "validation passed"
+            Next: EndState  
+          "Unexpected Error State":
+            Type: Pass
+            Parameters:
+              'status': 'failed'
+              'message': "validation failed"
+            Next: EndState 
+          EndState:
+            Type: Pass
+            End: true 
+
+
+plugins:
+  - serverless-step-functions
+  - serverless-pseudo-parameters

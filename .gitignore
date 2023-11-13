@@ -1,0 +1,14 @@
+venv
+.vscode/
+.DS_Store
+*.egg*
+*.logs*
+*build
+*dist
+node_modules
+.pytest_cache/
+.serverless/
+test/
+.idea/
+
+
