@@ -59,7 +59,7 @@ response = conn.create_db_instance(
 ```
 ## How it works
 
-<img width="924" alt="image" src="https://github.com/aws-samples/amazon-rds-audit-log/images/rds-audit-log.png">
+<img width="924" alt="image" src="https://github.com/aws-samples/amazon-rds-audit-log/blob/new_main/images/rdd-audit-log.png">
 
 The workflow steps are as follows:
 
