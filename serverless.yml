@@ -20,6 +20,7 @@ provider:
     images:
       appimage:
         path: ./
+        platform: linux/amd64
 package:
   patterns:
     - '!drivers/**'
