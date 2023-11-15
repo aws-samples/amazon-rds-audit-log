@@ -602,6 +602,8 @@ Resources:
 
       TracingConfig:
         Mode: Active
+      DependsOn:
+        - RDSAuditLogEnablementAssumeRole
   RDSAuditLogEnablementAssumeRole:
     Type: 'AWS::IAM::Role'
     DeletionPolicy: Retain
@@ -705,8 +707,8 @@ Resources:
                   - 'rds:ModifyOptionGroup'
                   - 'rds:ModifyDBInstance'
                   - 'rds:ModifyDBParameterGroup'
-                  - 'rds:ModifyDBClusters'
-                  - 'rds:ModifyDBSnapshots'
+                  - 'rds:ModifyDBCluster'
+                  - 'rds:ModifyDBSnapshot'
                   - 'rds:CreateOptionGroup'
                   - 'rds:CreateDBParameterGroup'
                   - 'rds:DescribeDBClusterParameterGroups'

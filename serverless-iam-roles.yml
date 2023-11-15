@@ -46,6 +46,7 @@ resources:
                 - Effect: 'Allow'
                   Action:
                     - 'sts:AssumeRole'
+                    - 'ec2:DescribeNetworkInterfaces'
                   Resource:
                     - '*'
                   Condition:
