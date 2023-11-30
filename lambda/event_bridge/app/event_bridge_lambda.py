@@ -93,7 +93,7 @@ def handler(event, context):
                                 instance_or_cluster=instance_or_cluster,
                                 db_identifier=db_identifier)
                        )}
-    url = f'http://{api_host}/v1/rds_audit_log'
+    url = f'http://{api_host}/v1/rdsauditlog'
     headers = (event_with_auth["headers"] if 'headers' in event_with_auth else {})
     body = event_with_auth["body"]
     logger.info(f"body-- {body}, url-- {url}")
